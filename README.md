@@ -1,11 +1,11 @@
 # BeatBlocks
 
-A playable rhythm-board demo.
+[Open the demo](https://hitianji.github.io/beatblocks-demo/).
 
-1. Click slots to place or remove kick and snare blocks.
-2. Press **Play** and adjust the tempo.
-3. Open **Add a hi-hat track**, choose steps, and press **Send to board**.
+1. Click **Create session** and **Copy invite link**.
+2. Open that link on another device.
+3. Both people can edit kick, snare, hi-hat, and tempo. Press **Play** on each device.
 
-The partner panel runs on the same page. Saved beats stay in your browser.
+The session saves changes automatically. Play/Stop, volume, and hi-hat mute are local to each device. **Save my beat** stores a separate copy in your browser.
 
-Open `index.html` directly or serve this folder with any static web server. The demo uses Web Audio and has no dependencies.
+The standalone frontend runs on GitHub Pages. Shared sessions use a hosted API and database. No account or microphone is required. The invitation link lets its recipients edit the beat.

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#eeeae3">
 <meta name="description" content="Place blocks, press Play, and build a beat. A playable demonstration of the BeatBlocks physical music board.">
@@ -13,12 +14,19 @@
 @media(max-width:700px){main{padding:20px 18px 25px}.intro{gap:15px;padding:24px 0 20px;align-items:start;flex-direction:column}.intro p{font-size:14px}.preset{flex-direction:row;align-items:center;gap:10px}.preset select{font-size:13px;padding:5px 26px 5px 9px}.board{padding:20px 16px 20px;border-radius:13px}.sequence{grid-template-columns:42px repeat(8,minmax(0,1fr));gap:12px 7px}.board-label{font-size:11px}.board-top{margin-bottom:17px}.board-top output{font-size:11px}.power{display:none}.track-label{font-size:11px}.track-label small{font-size:11px}.slot{border-radius:5px;min-height:34px}.token{inset:2px 2px 5px;border-radius:3px}.token-mark{border-width:4px}.snare .token-mark{border-width:3px}.snare .token-mark::after{height:2px;top:calc(50% - 1px)}.transport{gap:17px;flex-wrap:wrap}.play{min-width:96px;padding:12px 14px;font-size:14px}.tempo-control{min-width:135px;gap:10px}.tempo-dial{width:36px;height:36px}.tempo-dial::before{left:17px;height:9px;top:4px}.volume-control{display:flex;gap:12px;align-items:center;width:100%;margin:0}.volume-control .field-label{margin:0;min-width:48px}.volume-control input{max-width:135px}.divider{margin:20px 0 17px}.board-bottom{font-size:11px}.keyboard-hint{display:none!important}.how{gap:15px}.how h2{font-size:13px}.how p{font-size:12px}.actions{flex-wrap:wrap;margin-bottom:22px}.partner-hint{display:none}.partner-panel{padding:17px}.partner-intro{flex-direction:column;gap:9px}.partner-steps{gap:6px}.partner-muted{margin-left:0}footer{flex-direction:column;gap:10px}}
 @media(max-width:380px){main{padding:16px 12px}.board{padding:18px 10px}.sequence{grid-template-columns:36px repeat(8,minmax(0,1fr));column-gap:5px}.track-label{font-size:11px}.track-label small{display:none}.slot{min-height:28px}.slot::before{width:9px}.slot::after{height:9px}.token-mark{border-width:3px}.how{grid-template-columns:1fr;gap:13px}.how p{max-width:none}.demo-label{font-size:11px}.brand{font-size:21px}.board-top output{font-size:11px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}.slot.hit .token{transform:none}}
+
+.session{border-top:1px solid var(--line);padding:17px 0 21px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}.session-copy{flex:1;min-width:220px}.session h2{font-size:15px;margin:0 0 3px}.session p{font-size:13px;color:var(--muted);margin:0}.session-status{font-size:12px;color:var(--accent);display:block;margin-top:5px}.session-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.session-link{width:100%;display:flex;gap:9px;align-items:center}.session-link label{font-size:12px;white-space:nowrap}.session-link input{min-width:0;flex:1;border:1px solid #a9ada6;background:#f8f6f0;border-radius:5px;padding:8px;font:12px system-ui;color:var(--muted)}[hidden]{display:none!important}button:disabled{opacity:.55;cursor:wait}.session .send{font-size:13px}
 </style>
 </head>
 <body>
 <main>
 <header><div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>BeatBlocks</div><span class="demo-label">Interactive product demo</span></header>
 <section class="intro" aria-labelledby="intro-title"><div><h1>Build a beat. With blocks.</h1><p>Click a slot to place a block. Press Play. Move blocks to change the rhythm.</p></div><div class="preset"><label for="preset">Start with a rhythm</label><select id="preset"><option value="starter">Simple beat</option><option value="bounce">Bouncy beat</option><option value="busy">Busy beat</option><option value="empty">Empty board</option><option value="custom" disabled>Your beat</option></select></div></section>
+<section class="session" aria-label="Shared music">
+<div class="session-copy"><h2>Build a beat together</h2><p id="session-help">Share a link. Edit the same beat on both devices.</p><span id="session-status" class="session-status" role="status" aria-live="polite">Playing solo</span></div>
+<div class="session-actions"><button type="button" class="send" id="create-session">Create session</button><button type="button" class="send" id="copy-session" hidden>Copy invite link</button><button type="button" class="link-button" id="leave-session" hidden>Leave session</button></div>
+<div class="session-link" id="session-link-row" hidden><label for="session-link">Invite link</label><input id="session-link" readonly aria-label="Session invite link"></div>
+</section>
 <section class="board" aria-label="BeatBlocks physical board simulation">
 <div class="board-top"><span class="board-label">TWO SOUNDS · EIGHT POSITIONS</span><output id="play-state">Ready to play</output><span class="power"><span class="power-dot"></span>DEMO</span></div>
 <div class="sequence" id="sequence" role="group" aria-label="Place or remove blocks. First row kick, second row snare."></div>
@@ -29,14 +37,77 @@
 <div class="actions"><div class="button-group"><button type="button" class="secondary" id="save">Save my beat</button><button type="button" class="secondary" id="restore" disabled>Load saved beat</button><button type="button" class="link-button" id="clear">Remove all blocks</button></div><span class="save-status" id="save-status" role="status" aria-live="polite">Saved beats stay in this browser.</span></div>
 <div class="error" id="error" role="alert" hidden></div>
 <section class="how" aria-label="How the physical product works"><div><h2><span class="how-number">1</span>Place</h2><p>Each block tells the board when to make a sound.</p></div><div><h2><span class="how-number">2</span>Listen</h2><p>The light moves left to right. An empty slot stays silent.</p></div><div><h2><span class="how-number">3</span>Change</h2><p>Move blocks while it loops. Turn the tempo up or down.</p></div></section>
-<details class="partner" id="partner"><summary><span>Add a hi-hat track</span></summary><div class="partner-panel"><div class="partner-intro"><p>Choose hi-hat steps and send them to join the board’s kick and snare at a loop boundary.</p><span class="sim-label">Same-page simulation</span></div><div class="partner-steps" id="partner-steps" role="group" aria-label="Partner's hi-hat pattern"></div><div class="partner-bottom"><button type="button" class="send" id="send">Send to board</button><span class="partner-status" id="partner-status" role="status" aria-live="polite">Edit a pattern, then send it.</span><label class="partner-muted"><input type="checkbox" id="mute-partner"> <span style="font-size:12px">Mute partner</span></label></div><p class="listen-status" id="listen-status">On the board: no partner track yet.</p></div></details>
+<details class="partner" id="partner"><summary><span>Add a hi-hat track</span></summary><div class="partner-panel"><div class="partner-intro"><p>Add a crisp hi-hat rhythm. Changes join the beat at a loop boundary.</p><span class="sim-label" id="track-mode">Solo track</span></div><div class="partner-steps" id="partner-steps" role="group" aria-label="Partner's hi-hat pattern"></div><div class="partner-bottom"><button type="button" class="send" id="send">Send to board</button><span class="partner-status" id="partner-status" role="status" aria-live="polite">Edit a pattern, then send it.</span><label class="partner-muted"><input type="checkbox" id="mute-partner"> <span style="font-size:12px">Mute hi-hat on this device</span></label></div><p class="listen-status" id="listen-status">On the board: no partner track yet.</p></div></details>
 <footer><p>Magnetic blocks set the beat. LEDs mark each step. A speaker plays the rhythm.</p><a href="./index.html" download="beatblocks-demo.html">Download offline demo</a></footer>
 <span id="announcement" class="sr-only" role="status" aria-live="polite"></span>
 </main>
 <script>
 (() => {
 'use strict';
+// shared-client:start
+class SharedSessionClient {
+ constructor(options){
+  this.baseUrl=options.baseUrl||'';this.roomId=options.roomId;
+  this.clientId=options.clientId||crypto.randomUUID().replaceAll('-','');
+  this.fetch=options.fetch||fetch.bind(globalThis);this.onState=options.onState;this.onStatus=options.onStatus;
+  this.revision=-1;this.canonical=null;this.queue=[];this.seq=0;this.connected=0;
+  this.closed=false;this.sending=false;this.polling=false;this.heartbeat=0;this.timer=null;this.online=false;
+ }
+ snapshot(){
+  if(!this.canonical)return null;
+  const s=JSON.parse(JSON.stringify(this.canonical));
+  for(const op of this.queue)for(const c of op.changes){if('bpm' in c)s.bpm=c.bpm;else (c.row===2?s.partner:s.pattern[c.row])[c.step]=c.value;}
+  return s;
+ }
+ emit(){if(!this.closed&&this.canonical)this.onState(this.snapshot());}
+ status(text){if(!this.closed)this.onStatus(text);}
+ connectedStatus(){this.status('Connected · '+Math.max(1,this.connected)+' here'+(this.queue.length?' · saving…':' · saved'));}
+ accept(data){
+  if(this.closed)return;
+  this.connected=data.connected;
+  if(data.revision>=this.revision){this.revision=data.revision;this.canonical=data.state;}
+  this.online=true;this.emit();this.connectedStatus();
+ }
+ async request(body){
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);
+  try{
+   const res=await this.fetch(this.baseUrl+'/api/sessions/'+this.roomId,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,signal:controller.signal,cache:'no-store',credentials:'omit',referrerPolicy:'no-referrer'});
+   const data=await res.json();if(!res.ok)throw Object.assign(new Error(data.error||'Could not connect.'),{status:res.status});return data;
+  }finally{clearTimeout(timeout);}
+ }
+ failed(error){
+  this.online=false;
+  if([400,403,404,409,413].includes(error.status)){this.status(error.message);this.fatal=true;return;}
+  this.status('Reconnecting'+(this.queue.length?' · '+this.queue.length+(this.queue.length===1?' change waiting':' changes waiting'):'')+'…');
+ }
+ edit(changes){
+  if(!this.canonical||this.closed||this.fatal)return false;
+  if(this.queue.length>=256){this.status('Reconnect to send your waiting changes.');return false;}
+  this.queue.push({type:'edit',clientId:this.clientId,seq:++this.seq,changes:JSON.parse(JSON.stringify(changes))});
+  this.emit();this.online?this.connectedStatus():this.status('Reconnecting · '+this.queue.length+(this.queue.length===1?' change waiting…':' changes waiting…'));this.flush();return true;
+ }
+ async flush(){
+  if(this.sending||this.closed||this.fatal)return;
+  this.sending=true;
+  try{while(this.queue.length&&!this.closed){const op=this.queue[0],data=await this.request(op);if(this.closed)break;this.queue.shift();this.accept(data);}}
+  catch(error){this.failed(error);}finally{this.sending=false;}
+ }
+ async poll(){
+  if(this.closed||this.polling||this.fatal)return;
+  this.polling=true;
+  try{const heartbeat=Date.now()-this.heartbeat>10000;const data=await this.request(heartbeat?{type:'presence',clientId:this.clientId}:null);if(heartbeat)this.heartbeat=Date.now();this.accept(data);await this.flush();}
+  catch(error){this.failed(error);}finally{
+   this.polling=false;
+   if(!this.closed&&!this.fatal)this.timer=setTimeout(()=>this.poll(),this.online?600:2000);
+  }
+ }
+ start(){this.status('Joining session…');return this.poll();}
+ close(){this.closed=true;clearTimeout(this.timer);}
+}
+// shared-client:end
+
 const $ = id => document.getElementById(id);
+let session=null,audiblePattern=null,activeBpm=96;
 const N=8, STORE='beatblocks-demo-v1';
 const presets={starter:[[1,0,0,0,1,0,0,0],[0,0,1,0,0,0,1,0]],bounce:[[1,0,0,1,1,0,0,0],[0,0,1,0,0,0,1,1]],busy:[[1,0,1,0,1,1,0,0],[0,0,0,1,0,0,1,0]],empty:[Array(N).fill(0),Array(N).fill(0)]};
 const clone=p=>p.map(row=>row.slice());
@@ -52,12 +123,12 @@ for(let i=0;i<N;i++){const h=add('div','step-number',undefined,$('sequence'));ad
  for(let i=0;i<N;i++){
   const b=add('button','slot '+(row?'snare':'kick'),undefined,$('sequence'));b.type='button';b.dataset.row=row;b.dataset.step=i;
   const token=add('span','token',undefined,b);token.setAttribute('aria-hidden','true');add('span','token-mark','',token);
-  b.addEventListener('click',()=>{pattern[row][i]=pattern[row][i]?0:1;drawBoard();$('announcement').textContent=(pattern[row][i]?'Placed ':'Removed ')+name+' block at position '+(i+1)+'.';});
+  b.addEventListener('click',()=>{if(session){session.edit([{row,step:i,value:pattern[row][i]?0:1}]);}else{pattern[row][i]=pattern[row][i]?0:1;drawBoard();}$('announcement').textContent=(pattern[row][i]?'Placed ':'Removed ')+name+' block at position '+(i+1)+'.';});
   localButtons[row].push(b);
  }
 });
 for(let i=0;i<N;i++){
- const b=add('button','hat-slot',String(i+1),$('partner-steps'));b.type='button';b.addEventListener('click',()=>{draft[i]=draft[i]?0:1;drawPartner();$('partner-status').textContent='Edited. Send to update the board.';});hatButtons.push(b);
+ const b=add('button','hat-slot',String(i+1),$('partner-steps'));b.type='button';b.addEventListener('click',()=>{if(session){session.edit([{row:2,step:i,value:draft[i]?0:1}]);}else{draft[i]=draft[i]?0:1;drawPartner();$('partner-status').textContent='Edited. Send to update the board.';}});hatButtons.push(b);
 }
 function drawBoard(){const match=Object.entries(presets).find(([,p])=>JSON.stringify(p)===JSON.stringify(pattern));$('preset').value=match?match[0]:'custom';localButtons.forEach((row,r)=>row.forEach((b,i)=>{b.setAttribute('aria-pressed',String(!!pattern[r][i]));b.setAttribute('aria-label',(pattern[r][i]?'Remove ':'Place ')+(r?'snare':'kick')+' block at position '+(i+1));}));}
 function drawPartner(){hatButtons.forEach((b,i)=>{b.setAttribute('aria-pressed',String(!!draft[i]));b.setAttribute('aria-label',(draft[i]?'Remove':'Add')+' hi-hat at position '+(i+1));});}
@@ -79,11 +150,12 @@ function scheduler(){
  if(!playing||audio.state!=='running')return;
  while(nextTime<audio.currentTime+.085){
   let applied=false;
-  if(nextStep===0){loop++;if(pending){partner=pending.slice();pending=null;applied=true;}}
-  const hits=[!!pattern[0][nextStep],!!pattern[1][nextStep]];
+  if(nextStep===0){loop++;if(session){audiblePattern=clone(pattern);activeBpm=bpm;}if(pending){partner=pending.slice();pending=null;applied=true;}}
+  const heard=session?(audiblePattern||pattern):pattern;
+  const hits=[!!heard[0][nextStep],!!heard[1][nextStep]];
   if(hits[0])kick(nextTime);if(hits[1])snare(nextTime);if(partner[nextStep]&&!$('mute-partner').checked)hat(nextTime);
   queue.push({time:nextTime,step:nextStep,hits,loop,applied,partnerSnapshot:applied?partner.slice():null});
-  nextTime+=60/bpm/2;nextStep=(nextStep+1)%N;
+  nextTime+=60/(session?activeBpm:bpm)/2;nextStep=(nextStep+1)%N;
  }
 }
 function animate(){
@@ -101,20 +173,71 @@ async function start(){
 }
 function stop(reason){playing=false;clearInterval(ticker);cancelAnimationFrame(raf);activeSources.forEach(s=>{try{s.stop();}catch(_){}});activeSources.clear();queue=[];clearPlayhead();$('play-label').textContent='Play';$('play').setAttribute('aria-label','Play rhythm');$('play-icon').setAttribute('d','M4 2 14 8 4 14Z');$('play-state').textContent=reason||'Ready to play';$('announcement').textContent='Stopped.';}
 $('play').addEventListener('click',()=>playing?stop():start());
-$('tempo').addEventListener('input',updateTempo);
+$('tempo').addEventListener('input',()=>{updateTempo();if(session){const chosen=bpm;clearTimeout(tempoSendTimer);tempoSendTimer=setTimeout(()=>{tempoSendTimer=null;if(session)session.edit([{bpm:chosen}]);},120);}});
 $('volume').addEventListener('input',()=>{if(master)master.gain.setTargetAtTime(Number($('volume').value)/100*.65,audio.currentTime,.02);});
-$('preset').addEventListener('change',()=>{pattern=clone(presets[$('preset').value]);drawBoard();$('save-status').textContent='Rhythm changed. Save it to keep your edits.';});
-$('clear').addEventListener('click',()=>{pattern=clone(presets.empty);drawBoard();$('preset').value='empty';$('announcement').textContent='All blocks removed. Place new blocks to build a beat.';});
+$('preset').addEventListener('change',()=>{const chosen=presets[$('preset').value];if(session){shareBoard(chosen);}else{pattern=clone(chosen);drawBoard();}$('save-status').textContent='Rhythm changed. Save it to keep your edits.';});
+$('clear').addEventListener('click',()=>{if(session){shareBoard(presets.empty);}else{pattern=clone(presets.empty);drawBoard();$('preset').value='empty';}$('announcement').textContent='All blocks removed. Place new blocks to build a beat.';});
 $('send').addEventListener('click',()=>{pending=draft.slice();$('partner-status').textContent=playing?'Sent. Queued for a loop boundary.':'Sent. Joins when you press Play.';});
 function valid(saved){return saved&&Array.isArray(saved.pattern)&&saved.pattern.length===2&&saved.pattern.every(row=>Array.isArray(row)&&row.length===N&&row.every(v=>v===0||v===1))&&Number.isFinite(saved.bpm)&&saved.bpm>=50&&saved.bpm<=170&&Array.isArray(saved.partner)&&saved.partner.length===N&&saved.partner.every(v=>v===0||v===1);}
 function readSaved(){try{const s=JSON.parse(localStorage.getItem(STORE));return valid(s)?s:null;}catch(_){return null;}}
 $('save').addEventListener('click',()=>{try{localStorage.setItem(STORE,JSON.stringify({pattern,bpm,partner:pending||partner}));$('restore').disabled=false;$('save-status').textContent='Beat saved in this browser.';}catch(_){$('save-status').textContent='Saving is blocked in this browser. Your beat still plays.';}});
-$('restore').addEventListener('click',()=>{const s=readSaved();if(!s){$('save-status').textContent='No saved beat found.';return;}pattern=clone(s.pattern);$('tempo').value=s.bpm;updateTempo();draft=s.partner.slice();pending=s.partner.slice();drawBoard();drawPartner();$('save-status').textContent='Saved beat loaded.';$('announcement').textContent='Saved beat restored.';$('partner-status').textContent=playing?'Saved partner track queued for a loop boundary.':'Saved partner track joins on Play.';});
+$('restore').addEventListener('click',()=>{const s=readSaved();if(!s){$('save-status').textContent='No saved beat found.';return;}if(session){const changes=boardChanges(s.pattern);changes.push({bpm:s.bpm});s.partner.forEach((value,step)=>changes.push({row:2,step,value}));session.edit(changes);$('save-status').textContent='Saved beat shared with the session.';return;}pattern=clone(s.pattern);$('tempo').value=s.bpm;updateTempo();draft=s.partner.slice();pending=s.partner.slice();drawBoard();drawPartner();$('save-status').textContent='Saved beat loaded.';$('announcement').textContent='Saved beat restored.';$('partner-status').textContent=playing?'Saved partner track queued for a loop boundary.':'Saved partner track joins on Play.';});
 document.addEventListener('keydown',e=>{if(e.code==='Space'&&!['INPUT','SELECT','TEXTAREA','BUTTON','SUMMARY','A'].includes(e.target.tagName)){e.preventDefault();playing?stop():start();}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&playing)stop('Paused while away');});
 window.addEventListener('pagehide',()=>{if(playing)stop();});
+
+let tempoSendTimer=null;
+const API_BASE=typeof location!=='undefined'&&location.hostname==='hitianji.github.io'?'https://beatblocks-playground.homerclare.chatgpt.site':(typeof location!=='undefined'&&location.protocol==='file:'?'https://beatblocks-playground.homerclare.chatgpt.site':'');
+function boardChanges(p){const changes=[];p.forEach((row,r)=>row.forEach((value,step)=>{if(pattern[r][step]!==value)changes.push({row:r,step,value});}));return changes;}
+function shareBoard(p){const changes=boardChanges(p);if(changes.length)session.edit(changes);}
+function lockEditing(locked){localButtons.flat().concat(hatButtons,[$('tempo'),$('preset'),$('clear'),$('restore'),$('send')]).forEach(b=>b.disabled=locked);if(!locked)$('restore').disabled=!readSaved();}
+function receiveShared(s){
+ pattern=clone(s.pattern);if(tempoSendTimer===null){$('tempo').value=s.bpm;updateTempo();}
+ if(JSON.stringify(draft)!==JSON.stringify(s.partner)||JSON.stringify(pending||partner)!==JSON.stringify(s.partner)){
+  draft=s.partner.slice();pending=s.partner.slice();drawPartner();
+  $('partner-status').textContent=playing?'Shared edits join at the next loop.':'Shared hi-hat ready. Press Play to listen.';
+ }
+ drawBoard();lockEditing(false);
+}
+function joinSession(id,initial){
+ if(session)session.close();clearTimeout(tempoSendTimer);tempoSendTimer=null;
+ stop();lockEditing(true);$('create-session').hidden=true;$('copy-session').hidden=false;$('leave-session').hidden=false;$('session-link-row').hidden=false;
+ $('session-link').value=(location.protocol==='file:'?'https://hitianji.github.io/beatblocks-demo/':location.origin+location.pathname)+'#room='+id;
+ $('session-help').textContent='Edit any track. Press Play on each device to listen.';
+ $('track-mode').textContent='Shared track';$('send').hidden=true;$('partner').open=true;
+ session=new SharedSessionClient({baseUrl:API_BASE,roomId:id,onState:receiveShared,onStatus:text=>{$('session-status').textContent=text;}});
+ if(initial)session.accept(initial);session.start();
+}
+function leaveSession(){
+ if(session)session.close();session=null;clearTimeout(tempoSendTimer);tempoSendTimer=null;lockEditing(false);
+ history.replaceState(null,'',location.pathname+location.search);$('create-session').hidden=false;$('copy-session').hidden=true;$('leave-session').hidden=true;$('session-link-row').hidden=true;
+ $('session-help').textContent='Share a link. Edit the same beat on both devices.';$('session-status').textContent='Playing solo';$('track-mode').textContent='Solo track';$('send').hidden=false;
+}
+function setupSharing(){
+ $('create-session').addEventListener('click',async()=>{
+  $('create-session').disabled=true;lockEditing(true);$('session-status').textContent='Creating session…';
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);
+  try{
+   const res=await fetch(API_BASE+'/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pattern,bpm,partner:pending||partner}),signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer'});
+   const data=await res.json();if(!res.ok)throw new Error(data.error||'Could not create a session.');
+   history.replaceState(null,'','#room='+data.id);joinSession(data.id,data);
+  }catch(error){$('session-status').textContent='Could not create a session. Try again.';lockEditing(false);}
+  finally{clearTimeout(timeout);$('create-session').disabled=false;}
+ });
+ $('copy-session').addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText($('session-link').value);$('copy-session').textContent='Link copied';setTimeout(()=>{$('copy-session').textContent='Copy invite link';},1800);}
+  catch{$('session-link').focus();$('session-link').select();$('session-status').textContent='Copy the selected invite link.';}
+ });
+ $('session-link').addEventListener('click',()=>$('session-link').select());
+ $('leave-session').addEventListener('click',leaveSession);
+ window.addEventListener('beforeunload',e=>{if(session?.queue.length){e.preventDefault();e.returnValue='';}});
+ const fromLink=()=>{const id=new URLSearchParams(location.hash.slice(1)).get('room');if(id&&/^[a-f0-9]{64}$/.test(id))joinSession(id);else if(id){$('session-status').textContent='Invalid invite link. Ask for a new one.';}else if(session)leaveSession();};
+ window.addEventListener('hashchange',fromLink);fromLink();
+}
+
 if(readSaved())$('restore').disabled=false;
 drawBoard();drawPartner();updateTempo();
+if(typeof location!=='undefined')setupSharing();
 })();
 </script>
 </body>
