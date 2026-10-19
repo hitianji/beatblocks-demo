@@ -175,7 +175,7 @@ function stop(reason){playing=false;clearInterval(ticker);cancelAnimationFrame(r
 $('play').addEventListener('click',()=>playing?stop():start());
 $('tempo').addEventListener('input',()=>{updateTempo();if(session){const chosen=bpm;clearTimeout(tempoSendTimer);tempoSendTimer=setTimeout(()=>{tempoSendTimer=null;if(session)session.edit([{bpm:chosen}]);},120);}});
 $('volume').addEventListener('input',()=>{if(master)master.gain.setTargetAtTime(Number($('volume').value)/100*.65,audio.currentTime,.02);});
-$('preset').addEventListener('change',()=>{const chosen=presets[$('preset').value];if(session){shareBoard(chosen);}else{pattern=clone(chosen);drawBoard();}$('save-status').textContent='Rhythm changed. Save it to keep your edits.';});
+$('preset').addEventListener('change',()=>{const chosen=presets[$('preset').value];if(session){shareBoard(chosen);}else{pattern=clone(chosen);drawBoard();}$('save-status').textContent=session?'Session saves automatically.':'Rhythm changed. Save it to keep your edits.';});
 $('clear').addEventListener('click',()=>{if(session){shareBoard(presets.empty);}else{pattern=clone(presets.empty);drawBoard();$('preset').value='empty';}$('announcement').textContent='All blocks removed. Place new blocks to build a beat.';});
 $('send').addEventListener('click',()=>{pending=draft.slice();$('partner-status').textContent=playing?'Sent. Queued for a loop boundary.':'Sent. Joins when you press Play.';});
 function valid(saved){return saved&&Array.isArray(saved.pattern)&&saved.pattern.length===2&&saved.pattern.every(row=>Array.isArray(row)&&row.length===N&&row.every(v=>v===0||v===1))&&Number.isFinite(saved.bpm)&&saved.bpm>=50&&saved.bpm<=170&&Array.isArray(saved.partner)&&saved.partner.length===N&&saved.partner.every(v=>v===0||v===1);}
@@ -196,6 +196,7 @@ function receiveShared(s){
  if(JSON.stringify(draft)!==JSON.stringify(s.partner)||JSON.stringify(pending||partner)!==JSON.stringify(s.partner)){
   draft=s.partner.slice();pending=s.partner.slice();drawPartner();
   $('partner-status').textContent=playing?'Shared edits join at the next loop.':'Shared hi-hat ready. Press Play to listen.';
+  if(!playing)$('listen-status').textContent=s.partner.some(Boolean)?'Ready: '+s.partner.map((v,i)=>v?i+1:null).filter(Boolean).join(', ')+' (hi-hat positions).':'Ready: no hi-hats.';
  }
  drawBoard();lockEditing(false);
 }
@@ -204,6 +205,7 @@ function joinSession(id,initial){
  stop();lockEditing(true);$('create-session').hidden=true;$('copy-session').hidden=false;$('leave-session').hidden=false;$('session-link-row').hidden=false;
  $('session-link').value=(location.protocol==='file:'?'https://hitianji.github.io/beatblocks-demo/':location.origin+location.pathname)+'#room='+id;
  $('session-help').textContent='Edit any track. Press Play on each device to listen.';
+ $('save').textContent='Save local copy';$('restore').textContent='Load local copy';$('save-status').textContent='Session saves automatically. Local copies stay in this browser.';
  $('track-mode').textContent='Shared track';$('send').hidden=true;$('partner').open=true;
  session=new SharedSessionClient({baseUrl:API_BASE,roomId:id,onState:receiveShared,onStatus:text=>{$('session-status').textContent=text;}});
  if(initial)session.accept(initial);session.start();
@@ -211,6 +213,7 @@ function joinSession(id,initial){
 function leaveSession(){
  if(session)session.close();session=null;clearTimeout(tempoSendTimer);tempoSendTimer=null;lockEditing(false);
  history.replaceState(null,'',location.pathname+location.search);$('create-session').hidden=false;$('copy-session').hidden=true;$('leave-session').hidden=true;$('session-link-row').hidden=true;
+ $('save').textContent='Save my beat';$('restore').textContent='Load saved beat';$('save-status').textContent='Saved beats stay in this browser.';
  $('session-help').textContent='Share a link. Edit the same beat on both devices.';$('session-status').textContent='Playing solo';$('track-mode').textContent='Solo track';$('send').hidden=false;
 }
 function setupSharing(){
