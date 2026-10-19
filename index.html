@@ -37,7 +37,7 @@
 <div class="actions"><div class="button-group"><button type="button" class="secondary" id="save">Save my beat</button><button type="button" class="secondary" id="restore" disabled>Load saved beat</button><button type="button" class="link-button" id="clear">Remove all blocks</button></div><span class="save-status" id="save-status" role="status" aria-live="polite">Saved beats stay in this browser.</span></div>
 <div class="error" id="error" role="alert" hidden></div>
 <section class="how" aria-label="How the physical product works"><div><h2><span class="how-number">1</span>Place</h2><p>Each block tells the board when to make a sound.</p></div><div><h2><span class="how-number">2</span>Listen</h2><p>The light moves left to right. An empty slot stays silent.</p></div><div><h2><span class="how-number">3</span>Change</h2><p>Move blocks while it loops. Turn the tempo up or down.</p></div></section>
-<details class="partner" id="partner"><summary><span>Add a hi-hat track</span></summary><div class="partner-panel"><div class="partner-intro"><p>Add a crisp hi-hat rhythm. Changes join the beat at a loop boundary.</p><span class="sim-label" id="track-mode">Solo track</span></div><div class="partner-steps" id="partner-steps" role="group" aria-label="Partner's hi-hat pattern"></div><div class="partner-bottom"><button type="button" class="send" id="send">Send to board</button><span class="partner-status" id="partner-status" role="status" aria-live="polite">Edit a pattern, then send it.</span><label class="partner-muted"><input type="checkbox" id="mute-partner"> <span style="font-size:12px">Mute hi-hat on this device</span></label></div><p class="listen-status" id="listen-status">On the board: no partner track yet.</p></div></details>
+<details class="partner" id="partner"><summary><span>Add a hi-hat track</span></summary><div class="partner-panel"><div class="partner-intro"><p>Add a crisp hi-hat rhythm. Changes join at a loop boundary.</p><span class="sim-label" id="track-mode">Solo track</span></div><div class="partner-steps" id="partner-steps" role="group" aria-label="Partner's hi-hat pattern"></div><div class="partner-bottom"><button type="button" class="send" id="send">Send to board</button><span class="partner-status" id="partner-status" role="status" aria-live="polite">Edit a pattern, then send it.</span><label class="partner-muted"><input type="checkbox" id="mute-partner"> <span style="font-size:12px">Mute hi-hat on this device</span></label></div><p class="listen-status" id="listen-status">On the board: no partner track yet.</p></div></details>
 <footer><p>Magnetic blocks set the beat. LEDs mark each step. A speaker plays the rhythm.</p><a href="./index.html" download="beatblocks-demo.html">Download offline demo</a></footer>
 <span id="announcement" class="sr-only" role="status" aria-live="polite"></span>
 </main>
@@ -45,11 +45,66 @@
 (() => {
 'use strict';
 // shared-client:start
+// Server milliseconds define musical time. A step is an eighth note; a bar is eight steps.
+function initialPlayback(state,at,revision){return {frames:[{at,step:0,revision,bpm:state.bpm,pattern:state.pattern.map(r=>r.slice()),partner:state.partner.slice()}]};}
+function positionAt(playback,time){
+ const frames=playback.frames;let index=0;
+ while(index+1<frames.length&&frames[index+1].at<=time+.001)index++;
+ const frame=frames[index],duration=30000/frame.bpm;
+ const step=frame.step+Math.max(0,Math.floor((time-frame.at+.001)/duration));
+ return {frame,index,step,at:frame.at+(step-frame.step)*duration};
+}
+function nextTick(playback,time,afterStep=-1){
+ const pos=positionAt(playback,time),frames=playback.frames;
+ let i=pos.index;
+ while(true){
+  const frame=frames[i],duration=30000/frame.bpm;
+  const step=Math.max(frame.step,afterStep+1,frame.step+Math.ceil((time-frame.at-.001)/duration));
+  const at=frame.at+(step-frame.step)*duration;
+  if(i+1<frames.length&&at>=frames[i+1].at-.001){i++;continue;}
+  return {frame,step,at};
+ }
+}
+function schedulePlayback(playback,state,now,revision){
+ const earliest=now+1800;
+ let tick=nextTick(playback,earliest);
+ while(tick.step%8!==0)tick=nextTick(playback,tick.at+.01,tick.step);
+ const frame={at:tick.at,step:tick.step,revision,bpm:state.bpm,pattern:state.pattern.map(r=>r.slice()),partner:state.partner.slice()};
+ const retained=playback.frames.filter(f=>f.at<tick.at-.001);
+ while(retained.length>1&&retained[1].at<now-10000)retained.shift();
+ return {frames:[...retained,frame]};
+}
+class ServerClock {
+ constructor(now=()=>performance.now()){this.monotonic=now;this.samples=[];this.offset=null;this.errorMs=Infinity;this.lastSample=-Infinity;}
+ observe(data,sent,received){
+  const {serverReceived,serverTime}=data;
+  if(!Number.isFinite(serverReceived)||!Number.isFinite(serverTime)||serverTime<serverReceived||received<sent)return;
+  const rtt=received-sent-(serverTime-serverReceived);
+  if(rtt< -5||rtt>2000)return;
+  this.samples=this.samples.filter(s=>received-s.received<60000);
+  this.samples.push({received,rtt:Math.max(0,rtt),offset:serverTime+Math.max(0,rtt)/2-received});
+  if(this.samples.length>80)this.samples.shift();
+  // Minimum round-trip delay minimizes queueing bias; refresh the sample set every minute.
+  const best=this.samples.reduce((a,b)=>b.rtt<=a.rtt?b:a);
+  this.offset=best.offset;this.errorMs=best.rtt/2;this.lastSample=received;
+ }
+ get ready(){return this.offset!==null;}
+ now(){return this.ready?this.monotonic()+this.offset:NaN;}
+ toServer(performanceTime){return performanceTime+this.offset;}
+ toPerformance(serverTime){return serverTime-this.offset;}
+}
+function outputMapping(context,perfNow){
+ const ts=context.getOutputTimestamp?.();
+ if(ts&&ts.contextTime>0&&ts.performanceTime>0&&Math.abs(perfNow-ts.performanceTime)<1000)return {audioBase:ts.contextTime,perfBase:ts.performanceTime};
+ return {audioBase:context.currentTime,perfBase:perfNow+1000*((context.baseLatency||0)+(context.outputLatency||0))};
+}
+
 class SharedSessionClient {
  constructor(options){
   this.baseUrl=options.baseUrl||'';this.roomId=options.roomId;
   this.clientId=options.clientId||crypto.randomUUID().replaceAll('-','');
   this.fetch=options.fetch||fetch.bind(globalThis);this.onState=options.onState;this.onStatus=options.onStatus;
+  this.monotonic=options.monotonic||(()=>performance.now());this.clock=new ServerClock(this.monotonic);this.playback=null;this.lastContact=-Infinity;
   this.revision=-1;this.canonical=null;this.queue=[];this.seq=0;this.connected=0;
   this.closed=false;this.sending=false;this.polling=false;this.heartbeat=0;this.timer=null;this.online=false;
  }
@@ -65,14 +120,16 @@ class SharedSessionClient {
  accept(data){
   if(this.closed)return;
   this.connected=data.connected;
-  if(data.revision>=this.revision){this.revision=data.revision;this.canonical=data.state;}
+  if(data.revision>=this.revision){this.revision=data.revision;this.canonical=data.state;this.playback=data.playback||null;}
+  this.lastContact=this.monotonic();
   this.online=true;this.emit();this.connectedStatus();
  }
- async request(body){
+ async request(body,clockOnly=false){
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);
   try{
-   const res=await this.fetch(this.baseUrl+'/api/sessions/'+this.roomId,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,signal:controller.signal,cache:'no-store',credentials:'omit',referrerPolicy:'no-referrer'});
-   const data=await res.json();if(!res.ok)throw Object.assign(new Error(data.error||'Could not connect.'),{status:res.status});return data;
+   const sent=this.monotonic();
+   const res=await this.fetch(this.baseUrl+'/api/sessions'+(clockOnly?'?clock=1':'/'+this.roomId),{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,signal:controller.signal,cache:'no-store',credentials:'omit',referrerPolicy:'no-referrer'});
+   const data=await res.json();const received=this.monotonic();if(!res.ok)throw Object.assign(new Error(data.error||'Could not connect.'),{status:res.status});this.clock.observe(data,sent,received);return data;
   }finally{clearTimeout(timeout);}
  }
  failed(error){
@@ -101,13 +158,14 @@ class SharedSessionClient {
    if(!this.closed&&!this.fatal)this.timer=setTimeout(()=>this.poll(),this.online?600:2000);
   }
  }
- start(){this.status('Joining session…');return this.poll();}
+ async syncClock(count=5){for(let i=0;i<count&&!this.closed;i++)await this.request(null,true);}
+ start(){this.status('Joining session…');return Promise.all([this.poll(),this.syncClock().catch(()=>{})]);}
  close(){this.closed=true;clearTimeout(this.timer);}
 }
 // shared-client:end
 
 const $ = id => document.getElementById(id);
-let session=null,audiblePattern=null,activeBpm=96;
+let session=null,audiblePattern=null,activeBpm=96,sharedLastStep=-1,sharedOffset=null,syncWaiting=false,heardRevision=-1,startGeneration=0;
 const N=8, STORE='beatblocks-demo-v1';
 const presets={starter:[[1,0,0,0,1,0,0,0],[0,0,1,0,0,0,1,0]],bounce:[[1,0,0,1,1,0,0,0],[0,0,1,0,0,0,1,1]],busy:[[1,0,1,0,1,1,0,0],[0,0,0,1,0,0,1,0]],empty:[Array(N).fill(0),Array(N).fill(0)]};
 const clone=p=>p.map(row=>row.slice());
@@ -137,7 +195,7 @@ function showError(text){$('error').textContent=text;$('error').hidden=false;}
 async function initAudio(){
  const Audio=window.AudioContext||window.webkitAudioContext;
  if(!Audio)throw new Error('This browser does not support audio. Try Chrome, Safari, or Firefox.');
- if(!audio){audio=new Audio();master=audio.createGain();master.gain.value=Number($('volume').value)/100*.65;master.connect(audio.destination);noise=audio.createBuffer(1,audio.sampleRate*.3,audio.sampleRate);const d=noise.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;}
+ if(!audio){audio=new Audio({latencyHint:"interactive"});master=audio.createGain();master.gain.value=Number($('volume').value)/100*.65;master.connect(audio.destination);noise=audio.createBuffer(1,audio.sampleRate*.3,audio.sampleRate);const d=noise.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;}
  await audio.resume();if(audio.state!=='running')throw new Error('Audio is paused by your browser. Press Play again to enable sound.');
 }
 function source(node,time,duration){activeSources.add(node);node.onended=()=>{activeSources.delete(node);node.disconnect();};node.start(time);node.stop(time+duration);}
@@ -148,6 +206,7 @@ function hat(t){const n=audio.createBufferSource();n.buffer=noise;const f=audio.
 function clearPlayhead(){stepHeads.forEach(h=>h.classList.remove('current'));localButtons.flat().forEach(b=>b.classList.remove('current','hit'));hatButtons.forEach(b=>b.classList.remove('current'));current=-1;}
 function scheduler(){
  if(!playing||audio.state!=='running')return;
+ if(session){scheduleShared();return;}
  while(nextTime<audio.currentTime+.085){
   let applied=false;
   if(nextStep===0){loop++;if(session){audiblePattern=clone(pattern);activeBpm=bpm;}if(pending){partner=pending.slice();pending=null;applied=true;}}
@@ -160,18 +219,68 @@ function scheduler(){
 }
 function animate(){
  if(!playing)return;
+ if(session){animateShared();raf=requestAnimationFrame(animate);return;}
  let event=null;while(queue.length&&queue[0].time<=audio.currentTime)event=queue.shift();
  if(event){clearPlayhead();current=event.step;stepHeads[current].classList.add('current');localButtons.forEach((r,index)=>{r[current].classList.add('current');if(event.hits[index])r[current].classList.add('hit');});hatButtons[current].classList.add('current');$('play-state').textContent='Loop '+event.loop+' · position '+(current+1)+' / 8';
  if(event.applied){$('partner-status').textContent='Applied at a loop boundary.';$('listen-status').textContent=event.partnerSnapshot.some(Boolean)?'On the board: '+event.partnerSnapshot.map((v,i)=>v?i+1:null).filter(Boolean).join(', ')+' (hi-hat positions).':'On the board: no hi-hats.';}}
  raf=requestAnimationFrame(animate);
 }
+function cancelScheduled(){activeSources.forEach(s=>{try{s.stop();}catch(_){}});activeSources.clear();queue=[];sharedLastStep=-1;clearPlayhead();}
+function scheduleShared(){
+ const c=session;
+ if(!c.clock.ready||!c.playback||c.monotonic()-c.lastContact>4000){
+  if(!syncWaiting)cancelScheduled();syncWaiting=true;$('play-state').textContent='Reconnecting to the beat…';return;
+ }
+ if(syncWaiting||(sharedOffset!==null&&Math.abs(c.clock.offset-sharedOffset)>35))cancelScheduled();
+ syncWaiting=false;sharedOffset=c.clock.offset;
+ const perf=c.monotonic(),map=outputMapping(audio,perf);
+ const outputNow=map.perfBase+(audio.currentTime-map.audioBase)*1000;
+ const earliest=c.clock.toServer(outputNow+45),horizon=c.clock.toServer(outputNow+220);
+ let tick=nextTick(c.playback,earliest,sharedLastStep);
+ while(tick.at<=horizon){
+  const audioTime=map.audioBase+(c.clock.toPerformance(tick.at)-map.perfBase)/1000;
+  const step=tick.step%N,frame=tick.frame,hits=[!!frame.pattern[0][step],!!frame.pattern[1][step]];
+  if(hits[0])kick(audioTime);if(hits[1])snare(audioTime);if(frame.partner[step]&&!$('mute-partner').checked)hat(audioTime);
+  queue.push({time:audioTime,serverAt:tick.at,absoluteStep:tick.step,step,hits,frameRevision:frame.revision});
+  $('play-state').dataset.nextSoundAt=String(tick.at);$('play-state').dataset.nextSoundStep=String(tick.step);
+  sharedLastStep=tick.step;tick=nextTick(c.playback,tick.at+.01,sharedLastStep);
+ }
+}
+function animateShared(){
+ queue=queue.filter(e=>e.time>audio.currentTime);
+ if(syncWaiting||!session.clock.ready||!session.playback)return;
+ const now=session.clock.now(),pos=positionAt(session.playback,now),step=pos.step%N;
+ const display=$('play-state');display.dataset.serverTime=String(now);display.dataset.absoluteStep=String(pos.step);display.dataset.clockErrorMs=String(session.clock.errorMs);
+ if(current!==step||heardRevision!==pos.frame.revision){
+  clearPlayhead();current=step;stepHeads[step].classList.add('current');
+  localButtons.forEach((r,index)=>{r[step].classList.add('current');if(pos.frame.pattern[index][step])r[step].classList.add('hit');});hatButtons[step].classList.add('current');
+  display.textContent='In sync · position '+(step+1)+' / 8';
+  if(heardRevision!==pos.frame.revision){
+   heardRevision=pos.frame.revision;partner=pos.frame.partner.slice();
+   $('listen-status').textContent=partner.some(Boolean)?'Playing: '+partner.map((v,i)=>v?i+1:null).filter(Boolean).join(', ')+' (hi-hat positions).':'Playing: no hi-hats.';
+  }
+ }
+ $('partner-status').textContent=session.queue.length||session.playback.frames.at(-1).at>now?'Changes join at a shared loop boundary.':'Playing the shared beat.';
+}
 async function start(){
- if(playing||starting)return;starting=true;$('play-label').textContent='Starting';$('play').disabled=true;
- try{await initAudio();$('error').hidden=true;playing=true;loop=0;nextStep=0;nextTime=audio.currentTime+.05;queue=[];$('play-label').textContent='Stop';$('play').setAttribute('aria-label','Stop rhythm');$('play-icon').setAttribute('d','M3 3H13V13H3Z');$('announcement').textContent='Playing. Move blocks to change the beat.';scheduler();ticker=setInterval(scheduler,25);animate();}
- catch(err){showError(err.message);$('play-label').textContent='Play';}
+ if(playing||starting)return;starting=true;const generation=++startGeneration,joined=session;$('play-label').textContent=session?'Syncing…':'Starting';$('play').disabled=true;
+ try{
+  await initAudio();
+  if(joined){
+   await joined.syncClock(3);
+   if(!joined.playback){await joined.poll();}
+   if(!joined.clock.ready||!joined.playback)throw new Error('Connect to the session, then press Play.');
+  }
+  if(generation!==startGeneration||joined!==session)return;
+  $('error').hidden=true;playing=true;loop=0;nextStep=0;nextTime=audio.currentTime+.05;queue=[];sharedLastStep=-1;sharedOffset=null;syncWaiting=false;heardRevision=-1;
+  $('play-label').textContent='Stop';$('play').setAttribute('aria-label','Stop rhythm');$('play-icon').setAttribute('d','M3 3H13V13H3Z');$('announcement').textContent=joined?'Listening to the shared beat.':'Playing. Move blocks to change the beat.';
+  scheduler();ticker=setInterval(scheduler,25);animate();
+ }catch(err){if(generation===startGeneration){showError(err.message);$('play-label').textContent='Play';}}
  finally{starting=false;$('play').disabled=false;}
 }
-function stop(reason){playing=false;clearInterval(ticker);cancelAnimationFrame(raf);activeSources.forEach(s=>{try{s.stop();}catch(_){}});activeSources.clear();queue=[];clearPlayhead();$('play-label').textContent='Play';$('play').setAttribute('aria-label','Play rhythm');$('play-icon').setAttribute('d','M4 2 14 8 4 14Z');$('play-state').textContent=reason||'Ready to play';$('announcement').textContent='Stopped.';}
+function stop(reason){startGeneration++;playing=false;clearInterval(ticker);cancelAnimationFrame(raf);cancelScheduled();$('play-label').textContent='Play';$('play').setAttribute('aria-label','Play rhythm');$('play-icon').setAttribute('d','M4 2 14 8 4 14Z');$('play-state').textContent=reason||(session?'Shared beat ready':'Ready to play');$('announcement').textContent='Stopped.';
+ if(session){$('partner-status').textContent='Shared hi-hat ready. Press Play to listen.';$('listen-status').textContent=draft.some(Boolean)?'Ready: '+draft.map((v,i)=>v?i+1:null).filter(Boolean).join(', ')+' (hi-hat positions).':'Ready: no hi-hats.';}
+}
 $('play').addEventListener('click',()=>playing?stop():start());
 $('tempo').addEventListener('input',()=>{updateTempo();if(session){const chosen=bpm;clearTimeout(tempoSendTimer);tempoSendTimer=setTimeout(()=>{tempoSendTimer=null;if(session)session.edit([{bpm:chosen}]);},120);}});
 $('volume').addEventListener('input',()=>{if(master)master.gain.setTargetAtTime(Number($('volume').value)/100*.65,audio.currentTime,.02);});
@@ -180,7 +289,7 @@ $('clear').addEventListener('click',()=>{if(session){shareBoard(presets.empty);}
 $('send').addEventListener('click',()=>{pending=draft.slice();$('partner-status').textContent=playing?'Sent. Queued for a loop boundary.':'Sent. Joins when you press Play.';});
 function valid(saved){return saved&&Array.isArray(saved.pattern)&&saved.pattern.length===2&&saved.pattern.every(row=>Array.isArray(row)&&row.length===N&&row.every(v=>v===0||v===1))&&Number.isFinite(saved.bpm)&&saved.bpm>=50&&saved.bpm<=170&&Array.isArray(saved.partner)&&saved.partner.length===N&&saved.partner.every(v=>v===0||v===1);}
 function readSaved(){try{const s=JSON.parse(localStorage.getItem(STORE));return valid(s)?s:null;}catch(_){return null;}}
-$('save').addEventListener('click',()=>{try{localStorage.setItem(STORE,JSON.stringify({pattern,bpm,partner:pending||partner}));$('restore').disabled=false;$('save-status').textContent='Beat saved in this browser.';}catch(_){$('save-status').textContent='Saving is blocked in this browser. Your beat still plays.';}});
+$('save').addEventListener('click',()=>{try{localStorage.setItem(STORE,JSON.stringify({pattern,bpm,partner:session?draft:(pending||partner)}));$('restore').disabled=false;$('save-status').textContent='Beat saved in this browser.';}catch(_){$('save-status').textContent='Saving is blocked in this browser. Your beat still plays.';}});
 $('restore').addEventListener('click',()=>{const s=readSaved();if(!s){$('save-status').textContent='No saved beat found.';return;}if(session){const changes=boardChanges(s.pattern);changes.push({bpm:s.bpm});s.partner.forEach((value,step)=>changes.push({row:2,step,value}));session.edit(changes);$('save-status').textContent='Saved beat shared with the session.';return;}pattern=clone(s.pattern);$('tempo').value=s.bpm;updateTempo();draft=s.partner.slice();pending=s.partner.slice();drawBoard();drawPartner();$('save-status').textContent='Saved beat loaded.';$('announcement').textContent='Saved beat restored.';$('partner-status').textContent=playing?'Saved partner track queued for a loop boundary.':'Saved partner track joins on Play.';});
 document.addEventListener('keydown',e=>{if(e.code==='Space'&&!['INPUT','SELECT','TEXTAREA','BUTTON','SUMMARY','A'].includes(e.target.tagName)){e.preventDefault();playing?stop():start();}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&playing)stop('Paused while away');});
@@ -195,7 +304,7 @@ function receiveShared(s){
  pattern=clone(s.pattern);if(tempoSendTimer===null){$('tempo').value=s.bpm;updateTempo();}
  if(JSON.stringify(draft)!==JSON.stringify(s.partner)||JSON.stringify(pending||partner)!==JSON.stringify(s.partner)){
   draft=s.partner.slice();pending=s.partner.slice();drawPartner();
-  $('partner-status').textContent=playing?'Shared edits join at the next loop.':'Shared hi-hat ready. Press Play to listen.';
+  $('partner-status').textContent=playing?'Changes join at a shared loop boundary.':'Shared hi-hat ready. Press Play to listen.';
   if(!playing)$('listen-status').textContent=s.partner.some(Boolean)?'Ready: '+s.partner.map((v,i)=>v?i+1:null).filter(Boolean).join(', ')+' (hi-hat positions).':'Ready: no hi-hats.';
  }
  drawBoard();lockEditing(false);
@@ -204,13 +313,14 @@ function joinSession(id,initial){
  if(session)session.close();clearTimeout(tempoSendTimer);tempoSendTimer=null;
  stop();lockEditing(true);$('create-session').hidden=true;$('copy-session').hidden=false;$('leave-session').hidden=false;$('session-link-row').hidden=false;
  $('session-link').value=(location.protocol==='file:'?'https://hitianji.github.io/beatblocks-demo/':location.origin+location.pathname)+'#room='+id;
- $('session-help').textContent='Edit any track. Press Play on each device to listen.';
+ $('session-help').textContent='Press Play to join the shared beat. Stop and volume affect your device.';
  $('save').textContent='Save local copy';$('restore').textContent='Load local copy';$('save-status').textContent='Session saves automatically. Local copies stay in this browser.';
  $('track-mode').textContent='Shared track';$('send').hidden=true;$('partner').open=true;
  session=new SharedSessionClient({baseUrl:API_BASE,roomId:id,onState:receiveShared,onStatus:text=>{$('session-status').textContent=text;}});
  if(initial)session.accept(initial);session.start();
 }
 function leaveSession(){
+ stop();
  if(session)session.close();session=null;clearTimeout(tempoSendTimer);tempoSendTimer=null;lockEditing(false);
  history.replaceState(null,'',location.pathname+location.search);$('create-session').hidden=false;$('copy-session').hidden=true;$('leave-session').hidden=true;$('session-link-row').hidden=true;
  $('save').textContent='Save my beat';$('restore').textContent='Load saved beat';$('save-status').textContent='Saved beats stay in this browser.';
